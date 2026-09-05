@@ -31,6 +31,23 @@ pelo usuário, com uma linha por pedido.
 - Spreadsheet ID: configurado no backend, com precedência para a Script Property
   `SPREADSHEET_ID`.
 
+## 1.2 Refinamentos visuais e operacionais
+
+- Gráficos sem rótulos ou grades no eixo Y, com meses escritos como `maio/26` e
+  séries mensais limitadas aos meses que possuem lançamentos.
+- Gráficos diários e horários exibem valores fixos sobre as barras; faixas sem
+  registros não são criadas, enquanto lançamentos reais com valor zero continuam
+  visíveis.
+- A troca entre Dashboard e Operações recria os gráficos após o DOM do Vue estar
+  disponível, sem exigir novo clique em “Aplicar filtros”.
+- A tabela recente não expõe o UUID visualmente e preserva lançamentos cujo pedido
+  ou valor seja `0`.
+- O horário final recebe automaticamente uma hora adicional após a seleção do
+  horário inicial e continua editável.
+- O atalho redundante da sidebar foi substituído por um botão flutuante azul. Em
+  celulares, a navegação usa uma Tab Bar flutuante com glassmorphism.
+- No modal, Cancelar usa vermelho, Salvar e novo usa azul e Salvar permanece verde.
+
 ## 2. Escopo confirmado pelo briefing
 
 ### 2.1 Dashboard

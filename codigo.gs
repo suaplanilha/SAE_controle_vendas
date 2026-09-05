@@ -63,7 +63,7 @@ function normalizeOrder_(input, requireUuid) {
     horario_inicio: timeText_(input.horario_inicio),
     horario_fim: timeText_(input.horario_fim),
     valor: Number(String(input.valor == null ? '' : input.valor).replace(',', '.')),
-    pedido: String(input.pedido || '').trim().replace(/\s+/g, ' '),
+    pedido: String(input.pedido == null ? '' : input.pedido).trim().replace(/\s+/g, ' '),
     confirmDuplicate: input.confirmDuplicate === true
   };
   const errors = {};
@@ -85,14 +85,15 @@ function readOrders_() {
   return sheet.getRange(2, 1, lastRow - 1, CONFIG.HEADERS.length).getValues().map(function(row, index) {
     return {
       uuid: String(row[0] || ''), data: isoDate_(row[1]), horario_inicio: timeText_(row[2]),
-      horario_fim: timeText_(row[3]), valor: Number(row[4]) || 0, pedido: String(row[5] || ''),
+      horario_fim: timeText_(row[3]), valor: Number(row[4]) || 0, pedido: row[5] == null ? '' : String(row[5]),
       _row: index + 2
     };
-  }).filter(function(item) { return item.uuid && item.data && item.pedido; });
+  }).filter(function(item) { return item.uuid && item.data; });
 }
 
 function distinctCount_(rows) {
-  return new Set(rows.map(function(row) { return row.pedido.toLocaleUpperCase('pt-BR'); })).size;
+  return new Set(rows.map(function(row) { return row.pedido.trim().toLocaleUpperCase('pt-BR'); })
+    .filter(function(pedido) { return pedido !== ''; })).size;
 }
 function sum_(rows) { return rows.reduce(function(total, row) { return total + row.valor; }, 0); }
 function monthOf_(date) { return date.slice(0, 7); }
@@ -132,7 +133,9 @@ function lastMonths_(contextMonth) {
 }
 function fillMonths_(rows, months, type) {
   const grouped = group_(rows, function(row) { return monthOf_(row.data); });
-  return months.map(function(month) { return { label: month, value: grouped[month] ? (type === 'revenue' ? sum_(grouped[month]) : distinctCount_(grouped[month])) : 0 }; });
+  return months.filter(function(month) { return Boolean(grouped[month]); }).map(function(month) {
+    return { label: month, value: type === 'revenue' ? sum_(grouped[month]) : distinctCount_(grouped[month]) };
+  });
 }
 
 function buildDashboard_(orders, filters) {
