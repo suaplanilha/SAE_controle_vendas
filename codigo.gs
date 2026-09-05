@@ -1,253 +1,282 @@
-/**
- * PROJETO SAE - CONTROLE DE VENDAS (PLANILHA LEO)
- * Backend em Google Apps Script (codigo.gs)
- * 
- * Estrutura do Banco de Dados na Aba: "Leo_bd"
- * Cabeçalhos: UUID | data | horario_inicio | horario_fim | valor | pedido
- */
+/** SAE Controle de Vendas — backend Google Apps Script V8. */
+const CONFIG = Object.freeze({
+  SPREADSHEET_ID: '1b6EtE3NHfsO3BgcX6OwB8vj90QzgtYPLJt4rXgoZ8z0',
+  SHEET_NAME: 'Leo_bd',
+  TIMEZONE: 'America/Sao_Paulo',
+  HEADERS: ['UUID', 'data', 'horario_inicio', 'horario_fim', 'valor', 'pedido'],
+  PAGE_SIZE: 20
+});
 
-// Nome exato da aba do banco de dados na planilha Google
-const SHEET_NAME = 'Leo_bd';
+function doGet() {
+  return HtmlService.createHtmlOutputFromFile('index')
+    .setTitle('SAE — Controle de Vendas')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover');
+}
 
-// IDs e Cabeçalhos Esperados
-const HEADERS = ['UUID', 'data', 'horario_inicio', 'horario_fim', 'valor', 'pedido'];
+function getSpreadsheet_() {
+  const id = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID') || CONFIG.SPREADSHEET_ID;
+  return SpreadsheetApp.openById(id);
+}
 
-/**
- * Retorna a referência ativa da planilha e garante que a aba Leo_bd existe.
- * Se não existir, cria a aba e insere os cabeçalhos padrão.
- */
-function getOrCreateSheet() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(SHEET_NAME);
-  
-  if (!sheet) {
-    sheet = ss.insertSheet(SHEET_NAME);
-    sheet.appendRow(HEADERS);
-    sheet.getRange(1, 1, 1, HEADERS.length)
-         .setFontWeight('bold')
-         .setBackground('#132013')
-         .setFontColor('#2ecc71');
-    sheet.setFrozenRows(1);
+function getSheet_() {
+  const sheet = getSpreadsheet_().getSheetByName(CONFIG.SHEET_NAME);
+  if (!sheet) throw new Error('A aba "' + CONFIG.SHEET_NAME + '" não foi encontrada.');
+  const actual = sheet.getRange(1, 1, 1, CONFIG.HEADERS.length).getDisplayValues()[0];
+  if (actual.join('|').toLowerCase() !== CONFIG.HEADERS.join('|').toLowerCase()) {
+    throw new Error('Cabeçalho inválido em ' + CONFIG.SHEET_NAME + '. Esperado: ' + CONFIG.HEADERS.join(' | '));
   }
-  
   return sheet;
 }
 
-/**
- * Ponto de entrada GET do Web App GAS.
- * - Serve a interface web HTML (index.html) se acessado via navegador.
- * - Retorna JSON de vendas se parâmetro ?action=getSales for passado.
- */
-function doGet(e) {
-  try {
-    const action = e && e.parameter ? e.parameter.action : null;
-    
-    // Se for uma requisição de API via Query Parameter
-    if (action === 'getSales') {
-      const sales = getSalesData();
-      return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: sales }))
-        .setMimeType(ContentService.MimeType.JSON);
-    }
+function ok_(data, meta) { return { ok: true, data: data, meta: meta || {} }; }
+function fail_(code, message, details) { return { ok: false, error: { code: code, message: message, details: details || null } }; }
 
-    // Servir a aplicação Web Front-end
-    return HtmlService.createTemplateFromFile('index')
-      .evaluate()
-      .setTitle('SAE - Controle de Vendas | Planilha LEO')
-      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
-      .addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
-      
-  } catch (error) {
-    return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: error.toString() }))
-      .setMimeType(ContentService.MimeType.JSON);
+function safeCall_(fn) {
+  try { return fn(); }
+  catch (error) {
+    console.error(error && error.stack ? error.stack : error);
+    return fail_('SERVER_ERROR', 'Não foi possível concluir a operação. Tente novamente.');
   }
 }
 
-/**
- * Ponto de entrada POST para requisições externas (API REST/Webhooks JSON).
- * Suporta as ações: 'create', 'update', 'delete', 'getAll'.
- */
-function doPost(e) {
-  try {
-    let payload = {};
-    if (e.postData && e.postData.contents) {
-      payload = JSON.parse(e.postData.contents);
-    } else if (e.parameter) {
-      payload = e.parameter;
-    }
-
-    const action = payload.action;
-
-    switch (action) {
-      case 'create':
-        const created = addSaleRecord(payload.data);
-        return responseJSON({ status: 'success', record: created });
-
-      case 'update':
-        const updated = updateSaleRecord(payload.data);
-        return responseJSON({ status: 'success', record: updated });
-
-      case 'delete':
-        const deleted = deleteSaleRecord(payload.uuid);
-        return responseJSON({ status: 'success', deletedUuid: deleted });
-
-      case 'getAll':
-      default:
-        const sales = getSalesData();
-        return responseJSON({ status: 'success', data: sales });
-    }
-  } catch (err) {
-    return responseJSON({ status: 'error', message: err.toString() });
-  }
+function isoDate_(value) {
+  if (value instanceof Date && !isNaN(value.getTime())) return Utilities.formatDate(value, CONFIG.TIMEZONE, 'yyyy-MM-dd');
+  const text = String(value || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const parsed = new Date(text);
+  return isNaN(parsed.getTime()) ? '' : Utilities.formatDate(parsed, CONFIG.TIMEZONE, 'yyyy-MM-dd');
 }
 
-/**
- * Helper para formatação de respostas JSON da API REST
- */
-function responseJSON(obj) {
-  return ContentService.createTextOutput(JSON.stringify(obj))
-    .setMimeType(ContentService.MimeType.JSON);
+function timeText_(value) {
+  if (value instanceof Date && !isNaN(value.getTime())) return Utilities.formatDate(value, CONFIG.TIMEZONE, 'HH:mm');
+  const text = String(value || '').trim();
+  const match = text.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return '';
+  return String(Number(match[1])).padStart(2, '0') + ':' + match[2];
 }
 
+function normalizeOrder_(input, requireUuid) {
+  input = input || {};
+  const order = {
+    uuid: String(input.uuid || '').trim(),
+    data: isoDate_(input.data),
+    horario_inicio: timeText_(input.horario_inicio),
+    horario_fim: timeText_(input.horario_fim),
+    valor: Number(String(input.valor == null ? '' : input.valor).replace(',', '.')),
+    pedido: String(input.pedido == null ? '' : input.pedido).trim().replace(/\s+/g, ' '),
+    confirmDuplicate: input.confirmDuplicate === true
+  };
+  const errors = {};
+  if (requireUuid && !order.uuid) errors.uuid = 'UUID obrigatório.';
+  if (!order.data) errors.data = 'Informe uma data válida.';
+  if (!order.horario_inicio) errors.horario_inicio = 'Informe a hora inicial.';
+  if (!order.horario_fim) errors.horario_fim = 'Informe a hora final.';
+  if (order.horario_inicio && order.horario_fim && order.horario_inicio >= order.horario_fim) errors.horario_fim = 'A hora final deve ser posterior à inicial.';
+  if (!Number.isFinite(order.valor) || order.valor < 0) errors.valor = 'Informe um valor válido maior ou igual a zero.';
+  if (!order.pedido) errors.pedido = 'Informe o número do pedido.';
+  if (Object.keys(errors).length) return { valid: false, errors: errors };
+  return { valid: true, order: order };
+}
 
-/**
- * LER (Read): Busca todos os registros da aba Leo_bd e os formata como Array de Objetos JSON.
- * @returns {Array<Object>} Lista de registros de vendas
- */
-function getSalesData() {
-  const sheet = getOrCreateSheet();
+function readOrders_() {
+  const sheet = getSheet_();
   const lastRow = sheet.getLastRow();
-
-  if (lastRow <= 1) {
-    return []; // Apenas cabeçalhos existentes
-  }
-
-  // Pega todos os dados omitindo a linha do cabeçalho
-  const data = sheet.getRange(2, 1, lastRow - 1, HEADERS.length).getValues();
-
-  return data.map(row => {
-    let dateFormatted = '';
-    if (row[1] instanceof Date) {
-      dateFormatted = Utilities.formatDate(row[1], Session.getScriptTimeZone(), 'yyyy-MM-dd');
-    } else {
-      dateFormatted = String(row[1]);
-    }
-
+  if (lastRow < 2) return [];
+  return sheet.getRange(2, 1, lastRow - 1, CONFIG.HEADERS.length).getValues().map(function(row, index) {
     return {
-      uuid: String(row[0] || ''),
-      data: dateFormatted,
-      horario_inicio: String(row[2] || ''),
-      horario_fim: String(row[3] || ''),
-      valor: parseFloat(row[4]) || 0,
-      pedido: String(row[5] || '')
+      uuid: String(row[0] || ''), data: isoDate_(row[1]), horario_inicio: timeText_(row[2]),
+      horario_fim: timeText_(row[3]), valor: Number(row[4]) || 0, pedido: row[5] == null ? '' : String(row[5]),
+      _row: index + 2
     };
+  }).filter(function(item) { return item.uuid && item.data; });
+}
+
+function distinctCount_(rows) {
+  return new Set(rows.map(function(row) { return row.pedido.trim().toLocaleUpperCase('pt-BR'); })
+    .filter(function(pedido) { return pedido !== ''; })).size;
+}
+function sum_(rows) { return rows.reduce(function(total, row) { return total + row.valor; }, 0); }
+function monthOf_(date) { return date.slice(0, 7); }
+function yearOf_(date) { return date.slice(0, 4); }
+function slotOf_(row) { return row.horario_inicio + ' – ' + row.horario_fim; }
+function addDays_(iso, days) {
+  const parts = iso.split('-').map(Number);
+  const date = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2] + days, 12));
+  return Utilities.formatDate(date, 'UTC', 'yyyy-MM-dd');
+}
+function nowIso_() { return Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd'); }
+function nowTime_() { return Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'HH:mm'); }
+function hasSlot_(row, slot) { return !slot || slot === 'ALL' || slotOf_(row) === slot; }
+
+function group_(rows, keyFn) {
+  const map = {};
+  rows.forEach(function(row) {
+    const key = keyFn(row);
+    if (!map[key]) map[key] = [];
+    map[key].push(row);
+  });
+  return map;
+}
+function series_(map, type) {
+  return Object.keys(map).sort().map(function(key) {
+    return { label: key, value: type === 'revenue' ? sum_(map[key]) : distinctCount_(map[key]) };
+  });
+}
+function lastMonths_(contextMonth) {
+  const parts = contextMonth.split('-').map(Number);
+  const result = [];
+  for (let offset = 11; offset >= 0; offset--) {
+    const d = new Date(Date.UTC(parts[0], parts[1] - 1 - offset, 1));
+    result.push(Utilities.formatDate(d, 'UTC', 'yyyy-MM'));
+  }
+  return result;
+}
+function fillMonths_(rows, months, type) {
+  const grouped = group_(rows, function(row) { return monthOf_(row.data); });
+  return months.filter(function(month) { return Boolean(grouped[month]); }).map(function(month) {
+    return { label: month, value: type === 'revenue' ? sum_(grouped[month]) : distinctCount_(grouped[month]) };
   });
 }
 
-/**
- * CRIAR (Create): Adiciona um novo lançamento de venda na planilha Leo_bd.
- * Regra: Mantém a modal de cadastro liberada para novos envios.
- * @param {Object} record - Objeto de dados recebido do formulário
- * @returns {Object} Registro inserido com UUID gerado
- */
-function addSaleRecord(record) {
-  const sheet = getOrCreateSheet();
-
-  // Gerar UUID caso não seja fornecido
-  const uuid = record.uuid || ('UUID-' + Math.random().toString(36).substr(2, 8).toUpperCase());
-  const dataVal = record.data || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
-  const hInicio = record.horario_inicio || '08:00';
-  const hFim = record.horario_fim || '09:00';
-  const valor = parseFloat(record.valor) || 0;
-  const pedido = record.pedido || ('PED-' + Math.floor(1000 + Math.random() * 9000));
-
-  // Adiciona a nova linha
-  sheet.appendRow([uuid, dataVal, hInicio, hFim, valor, pedido]);
-
+function buildDashboard_(orders, filters) {
+  const today = nowIso_();
+  const selectedDate = isoDate_(filters.day) || today;
+  const selectedMonth = /^\d{4}-\d{2}$/.test(String(filters.month || '')) ? filters.month : monthOf_(selectedDate);
+  const selectedYear = selectedMonth.slice(0, 4);
+  const slot = String(filters.period || 'ALL');
+  const slotRows = orders.filter(function(row) { return hasSlot_(row, slot); });
+  const dayRows = slotRows.filter(function(row) { return row.data === selectedDate; });
+  const monthRows = slotRows.filter(function(row) { return monthOf_(row.data) === selectedMonth; });
+  const yearRows = slotRows.filter(function(row) { return yearOf_(row.data) === selectedYear; });
+  const months = lastMonths_(selectedMonth);
+  const rangeRows = slotRows.filter(function(row) { return months.indexOf(monthOf_(row.data)) >= 0; });
+  const periods = Array.from(new Set(orders.map(slotOf_))).sort();
   return {
-    uuid: uuid,
-    data: dataVal,
-    horario_inicio: hInicio,
-    horario_fim: hFim,
-    valor: valor,
-    pedido: pedido
+    context: { today: today, now: nowTime_(), selectedDate: selectedDate, selectedMonth: selectedMonth, selectedYear: selectedYear, period: slot },
+    periods: periods,
+    kpis: {
+      revenue: { day: sum_(dayRows), month: sum_(monthRows), year: sum_(yearRows) },
+      orders: { day: distinctCount_(dayRows), month: distinctCount_(monthRows), year: distinctCount_(yearRows) }
+    },
+    charts: {
+      revenueMonths: fillMonths_(rangeRows, months, 'revenue'),
+      orderMonths: fillMonths_(rangeRows, months, 'orders'),
+      revenueDays: series_(group_(monthRows, function(row) { return row.data; }), 'revenue'),
+      orderDays: series_(group_(monthRows, function(row) { return row.data; }), 'orders'),
+      revenueHours: series_(group_(dayRows, slotOf_), 'revenue'),
+      orderHours: series_(group_(dayRows, slotOf_), 'orders')
+    }
   };
 }
 
-/**
- * ATUALIZAR (Update): Altera um lançamento existente localizando seu UUID na planilha.
- * @param {Object} record - Objeto com os dados atualizados contendo o UUID
- * @returns {Object} Registro alterado
- */
-function updateSaleRecord(record) {
-  if (!record || !record.uuid) {
-    throw new Error('UUID obrigatório para alteração de registro.');
-  }
-
-  const sheet = getOrCreateSheet();
-  const lastRow = sheet.getLastRow();
-  if (lastRow <= 1) throw new Error('Nenhum dado encontrado para atualizar.');
-
-  const uuids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
-  let rowIndex = -1;
-
-  for (let i = 0; i < uuids.length; i++) {
-    if (String(uuids[i][0]).trim() === String(record.uuid).trim()) {
-      rowIndex = i + 2; // +2 compensa índice zero e linha do cabeçalho
-      break;
-    }
-  }
-
-  if (rowIndex === -1) {
-    throw new Error('Registro com o UUID especificado não foi encontrado.');
-  }
-
-  // Atualiza a linha correspondente
-  sheet.getRange(rowIndex, 2).setValue(record.data);
-  sheet.getRange(rowIndex, 3).setValue(record.horario_inicio);
-  sheet.getRange(rowIndex, 4).setValue(record.horario_fim);
-  sheet.getRange(rowIndex, 5).setValue(parseFloat(record.valor) || 0);
-  sheet.getRange(rowIndex, 6).setValue(record.pedido);
-
-  return record;
+function buildComparator_(orders, requestedDate) {
+  const today = nowIso_();
+  const selected = isoDate_(requestedDate) || today;
+  const reference = addDays_(selected, -7);
+  const relevant = orders.filter(function(row) { return row.data === selected || row.data === reference; });
+  const slots = Array.from(new Set(relevant.map(slotOf_))).sort();
+  const rows = slots.map(function(slot) {
+    const currentRows = relevant.filter(function(row) { return row.data === selected && slotOf_(row) === slot; });
+    const referenceRows = relevant.filter(function(row) { return row.data === reference && slotOf_(row) === slot; });
+    const current = distinctCount_(currentRows), target = distinctCount_(referenceRows), diff = current - target;
+    return { slot: slot, current: current, target: target, needed: Math.max(target - current, 0), diff: diff,
+      status: target === 0 ? 'no-base' : diff > 0 ? 'above' : diff === 0 ? 'equal' : 'below',
+      future: selected === today && slot.slice(0, 5) > nowTime_() };
+  });
+  return { selectedDate: selected, referenceDate: reference, isToday: selected === today, rows: rows,
+    totals: { current: distinctCount_(relevant.filter(function(row) { return row.data === selected; })), target: distinctCount_(relevant.filter(function(row) { return row.data === reference; })) } };
 }
 
-/**
- * EXCLUIR (Delete): Remove a linha do lançamento baseado no UUID.
- * @param {string} uuid - Identificador único do lançamento
- * @returns {string} UUID excluído
- */
-function deleteSaleRecord(uuid) {
-  if (!uuid) throw new Error('UUID não informado para exclusão.');
-
-  const sheet = getOrCreateSheet();
-  const lastRow = sheet.getLastRow();
-  if (lastRow <= 1) return uuid;
-
-  const uuids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
-
-  for (let i = 0; i < uuids.length; i++) {
-    if (String(uuids[i][0]).trim() === String(uuid).trim()) {
-      sheet.deleteRow(i + 2);
-      break;
-    }
-  }
-
-  return uuid;
+function getAppBootstrap(filters) {
+  return safeCall_(function() {
+    const orders = readOrders_();
+    filters = filters || {};
+    return ok_({ dashboard: buildDashboard_(orders, filters), comparator: buildComparator_(orders, filters.compareDate) });
+  });
 }
 
-/**
- * Função utilitária para inicializar a planilha com dados de teste (opcional)
- */
-function seedDatabaseTest() {
-  const sheet = getOrCreateSheet();
-  if (sheet.getLastRow() > 1) return; // Não sobrescreve se já houver dados
+function getDashboard(filters) { return getAppBootstrap(filters); }
 
-  const sampleRows = [
-    ['UUID-8X2A11', '2026-08-29', '10:00', '11:00', 120.00, 'PED-0829-1'],
-    ['UUID-8X2A12', '2026-08-29', '10:00', '11:00', 145.50, 'PED-0829-2'],
-    ['UUID-9Y3B21', '2026-09-05', '10:00', '11:00', 130.00, 'PED-0905-1'],
-    ['UUID-9Y3B22', '2026-09-05', '11:00', '12:00', 210.00, 'PED-0905-2']
-  ];
+function listOrders(query) {
+  return safeCall_(function() {
+    query = query || {};
+    const page = Math.max(1, Number(query.page) || 1);
+    const search = String(query.search || '').trim().toLocaleLowerCase('pt-BR');
+    let rows = readOrders_().sort(function(a, b) { return b._row - a._row; });
+    if (search) rows = rows.filter(function(row) { return [row.uuid, row.data, row.pedido, slotOf_(row)].join(' ').toLocaleLowerCase('pt-BR').indexOf(search) >= 0; });
+    const total = rows.length, pages = Math.max(1, Math.ceil(total / CONFIG.PAGE_SIZE));
+    const safePage = Math.min(page, pages);
+    const items = rows.slice((safePage - 1) * CONFIG.PAGE_SIZE, safePage * CONFIG.PAGE_SIZE).map(function(row) { delete row._row; return row; });
+    return ok_(items, { page: safePage, pageSize: CONFIG.PAGE_SIZE, total: total, pages: pages });
+  });
+}
 
-  sampleRows.forEach(row => sheet.appendRow(row));
+function listMonthlySummary(month) {
+  return safeCall_(function() {
+    const selectedMonth = /^\d{4}-\d{2}$/.test(String(month || '')) ? month : monthOf_(nowIso_());
+    const grouped = group_(readOrders_().filter(function(row) { return monthOf_(row.data) === selectedMonth; }), slotOf_);
+    const items = Object.keys(grouped).sort().map(function(slot) {
+      return { slot: slot, orders: distinctCount_(grouped[slot]), revenue: sum_(grouped[slot]) };
+    });
+    return ok_(items, { month: selectedMonth, periods: items.length });
+  });
+}
+
+function findDuplicates_(orders, order, currentUuid) {
+  return orders.filter(function(row) { return row.uuid !== currentUuid && row.pedido.toLocaleUpperCase('pt-BR') === order.pedido.toLocaleUpperCase('pt-BR'); });
+}
+function duplicateResponse_(duplicates, order) {
+  const exact = duplicates.filter(function(row) { return row.data === order.data && row.horario_inicio === order.horario_inicio && row.horario_fim === order.horario_fim; });
+  if (!exact.length) return fail_('ORDER_NOT_UNIQUE', 'Este número de pedido já existe em outra data ou período e deve ser globalmente único.', { matches: duplicates.length });
+  return fail_('DUPLICATE_CONFIRMATION_REQUIRED', 'Já existe o mesmo pedido nesta data e período. Confirme para somar os lançamentos.', { matches: exact.length, existingValue: sum_(exact) });
+}
+
+function createOrder(input) {
+  return safeCall_(function() {
+    const parsed = normalizeOrder_(input, false);
+    if (!parsed.valid) return fail_('VALIDATION_ERROR', 'Revise os campos informados.', parsed.errors);
+    const lock = LockService.getScriptLock(); lock.waitLock(20000);
+    try {
+      const orders = readOrders_(), order = parsed.order, duplicates = findDuplicates_(orders, order, '');
+      if (duplicates.length && !order.confirmDuplicate) return duplicateResponse_(duplicates, order);
+      if (duplicates.length && order.confirmDuplicate && !duplicates.some(function(row) { return row.data === order.data && row.horario_inicio === order.horario_inicio && row.horario_fim === order.horario_fim; })) return duplicateResponse_(duplicates, order);
+      order.uuid = Utilities.getUuid();
+      getSheet_().appendRow([order.uuid, order.data, order.horario_inicio, order.horario_fim, order.valor, order.pedido]);
+      delete order.confirmDuplicate;
+      return ok_(order);
+    } finally { lock.releaseLock(); }
+  });
+}
+
+function updateOrder(input) {
+  return safeCall_(function() {
+    const parsed = normalizeOrder_(input, true);
+    if (!parsed.valid) return fail_('VALIDATION_ERROR', 'Revise os campos informados.', parsed.errors);
+    const lock = LockService.getScriptLock(); lock.waitLock(20000);
+    try {
+      const orders = readOrders_(), order = parsed.order;
+      const current = orders.find(function(row) { return row.uuid === order.uuid; });
+      if (!current) return fail_('NOT_FOUND', 'Lançamento não encontrado.');
+      const duplicates = findDuplicates_(orders, order, order.uuid);
+      if (duplicates.length && !order.confirmDuplicate) return duplicateResponse_(duplicates, order);
+      if (duplicates.length && order.confirmDuplicate && !duplicates.some(function(row) { return row.data === order.data && row.horario_inicio === order.horario_inicio && row.horario_fim === order.horario_fim; })) return duplicateResponse_(duplicates, order);
+      getSheet_().getRange(current._row, 2, 1, 5).setValues([[order.data, order.horario_inicio, order.horario_fim, order.valor, order.pedido]]);
+      delete order.confirmDuplicate;
+      return ok_(order);
+    } finally { lock.releaseLock(); }
+  });
+}
+
+function deleteOrder(uuid) {
+  return safeCall_(function() {
+    uuid = String(uuid || '').trim();
+    if (!uuid) return fail_('VALIDATION_ERROR', 'UUID obrigatório.');
+    const lock = LockService.getScriptLock(); lock.waitLock(20000);
+    try {
+      const current = readOrders_().find(function(row) { return row.uuid === uuid; });
+      if (!current) return fail_('NOT_FOUND', 'Lançamento não encontrado.');
+      getSheet_().deleteRow(current._row);
+      return ok_({ uuid: uuid });
+    } finally { lock.releaseLock(); }
+  });
 }
