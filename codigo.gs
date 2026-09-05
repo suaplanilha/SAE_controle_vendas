@@ -63,8 +63,7 @@ function normalizeOrder_(input, requireUuid) {
     horario_inicio: timeText_(input.horario_inicio),
     horario_fim: timeText_(input.horario_fim),
     valor: Number(String(input.valor == null ? '' : input.valor).replace(',', '.')),
-    pedido: String(input.pedido == null ? '' : input.pedido).trim().replace(/\s+/g, ' '),
-    confirmDuplicate: input.confirmDuplicate === true
+    pedido: Number(String(input.pedido == null ? '' : input.pedido).replace(',', '.'))
   };
   const errors = {};
   if (requireUuid && !order.uuid) errors.uuid = 'UUID obrigatório.';
@@ -73,7 +72,7 @@ function normalizeOrder_(input, requireUuid) {
   if (!order.horario_fim) errors.horario_fim = 'Informe a hora final.';
   if (order.horario_inicio && order.horario_fim && order.horario_inicio >= order.horario_fim) errors.horario_fim = 'A hora final deve ser posterior à inicial.';
   if (!Number.isFinite(order.valor) || order.valor < 0) errors.valor = 'Informe um valor válido maior ou igual a zero.';
-  if (!order.pedido) errors.pedido = 'Informe o número do pedido.';
+  if (!Number.isInteger(order.pedido) || order.pedido < 0) errors.pedido = 'Informe uma quantidade inteira de pedidos, maior ou igual a zero.';
   if (Object.keys(errors).length) return { valid: false, errors: errors };
   return { valid: true, order: order };
 }
@@ -85,15 +84,14 @@ function readOrders_() {
   return sheet.getRange(2, 1, lastRow - 1, CONFIG.HEADERS.length).getValues().map(function(row, index) {
     return {
       uuid: String(row[0] || ''), data: isoDate_(row[1]), horario_inicio: timeText_(row[2]),
-      horario_fim: timeText_(row[3]), valor: Number(row[4]) || 0, pedido: row[5] == null ? '' : String(row[5]),
+      horario_fim: timeText_(row[3]), valor: Number(row[4]) || 0, pedido: Number(row[5]) || 0,
       _row: index + 2
     };
   }).filter(function(item) { return item.uuid && item.data; });
 }
 
-function distinctCount_(rows) {
-  return new Set(rows.map(function(row) { return row.pedido.trim().toLocaleUpperCase('pt-BR'); })
-    .filter(function(pedido) { return pedido !== ''; })).size;
+function orderTotal_(rows) {
+  return rows.reduce(function(total, row) { return total + (Number(row.pedido) || 0); }, 0);
 }
 function sum_(rows) { return rows.reduce(function(total, row) { return total + row.valor; }, 0); }
 function monthOf_(date) { return date.slice(0, 7); }
@@ -119,7 +117,7 @@ function group_(rows, keyFn) {
 }
 function series_(map, type) {
   return Object.keys(map).sort().map(function(key) {
-    return { label: key, value: type === 'revenue' ? sum_(map[key]) : distinctCount_(map[key]) };
+    return { label: key, value: type === 'revenue' ? sum_(map[key]) : orderTotal_(map[key]) };
   });
 }
 function lastMonths_(contextMonth) {
@@ -134,7 +132,7 @@ function lastMonths_(contextMonth) {
 function fillMonths_(rows, months, type) {
   const grouped = group_(rows, function(row) { return monthOf_(row.data); });
   return months.filter(function(month) { return Boolean(grouped[month]); }).map(function(month) {
-    return { label: month, value: type === 'revenue' ? sum_(grouped[month]) : distinctCount_(grouped[month]) };
+    return { label: month, value: type === 'revenue' ? sum_(grouped[month]) : orderTotal_(grouped[month]) };
   });
 }
 
@@ -156,7 +154,7 @@ function buildDashboard_(orders, filters) {
     periods: periods,
     kpis: {
       revenue: { day: sum_(dayRows), month: sum_(monthRows), year: sum_(yearRows) },
-      orders: { day: distinctCount_(dayRows), month: distinctCount_(monthRows), year: distinctCount_(yearRows) }
+      orders: { day: orderTotal_(dayRows), month: orderTotal_(monthRows), year: orderTotal_(yearRows) }
     },
     charts: {
       revenueMonths: fillMonths_(rangeRows, months, 'revenue'),
@@ -178,13 +176,13 @@ function buildComparator_(orders, requestedDate) {
   const rows = slots.map(function(slot) {
     const currentRows = relevant.filter(function(row) { return row.data === selected && slotOf_(row) === slot; });
     const referenceRows = relevant.filter(function(row) { return row.data === reference && slotOf_(row) === slot; });
-    const current = distinctCount_(currentRows), target = distinctCount_(referenceRows), diff = current - target;
+    const current = orderTotal_(currentRows), target = orderTotal_(referenceRows), diff = current - target;
     return { slot: slot, current: current, target: target, needed: Math.max(target - current, 0), diff: diff,
       status: target === 0 ? 'no-base' : diff > 0 ? 'above' : diff === 0 ? 'equal' : 'below',
       future: selected === today && slot.slice(0, 5) > nowTime_() };
   });
   return { selectedDate: selected, referenceDate: reference, isToday: selected === today, rows: rows,
-    totals: { current: distinctCount_(relevant.filter(function(row) { return row.data === selected; })), target: distinctCount_(relevant.filter(function(row) { return row.data === reference; })) } };
+    totals: { current: orderTotal_(relevant.filter(function(row) { return row.data === selected; })), target: orderTotal_(relevant.filter(function(row) { return row.data === reference; })) } };
 }
 
 function getAppBootstrap(filters) {
@@ -216,19 +214,10 @@ function listMonthlySummary(month) {
     const selectedMonth = /^\d{4}-\d{2}$/.test(String(month || '')) ? month : monthOf_(nowIso_());
     const grouped = group_(readOrders_().filter(function(row) { return monthOf_(row.data) === selectedMonth; }), slotOf_);
     const items = Object.keys(grouped).sort().map(function(slot) {
-      return { slot: slot, orders: distinctCount_(grouped[slot]), revenue: sum_(grouped[slot]) };
+      return { slot: slot, orders: orderTotal_(grouped[slot]), revenue: sum_(grouped[slot]) };
     });
     return ok_(items, { month: selectedMonth, periods: items.length });
   });
-}
-
-function findDuplicates_(orders, order, currentUuid) {
-  return orders.filter(function(row) { return row.uuid !== currentUuid && row.pedido.toLocaleUpperCase('pt-BR') === order.pedido.toLocaleUpperCase('pt-BR'); });
-}
-function duplicateResponse_(duplicates, order) {
-  const exact = duplicates.filter(function(row) { return row.data === order.data && row.horario_inicio === order.horario_inicio && row.horario_fim === order.horario_fim; });
-  if (!exact.length) return fail_('ORDER_NOT_UNIQUE', 'Este número de pedido já existe em outra data ou período e deve ser globalmente único.', { matches: duplicates.length });
-  return fail_('DUPLICATE_CONFIRMATION_REQUIRED', 'Já existe o mesmo pedido nesta data e período. Confirme para somar os lançamentos.', { matches: exact.length, existingValue: sum_(exact) });
 }
 
 function createOrder(input) {
@@ -237,12 +226,9 @@ function createOrder(input) {
     if (!parsed.valid) return fail_('VALIDATION_ERROR', 'Revise os campos informados.', parsed.errors);
     const lock = LockService.getScriptLock(); lock.waitLock(20000);
     try {
-      const orders = readOrders_(), order = parsed.order, duplicates = findDuplicates_(orders, order, '');
-      if (duplicates.length && !order.confirmDuplicate) return duplicateResponse_(duplicates, order);
-      if (duplicates.length && order.confirmDuplicate && !duplicates.some(function(row) { return row.data === order.data && row.horario_inicio === order.horario_inicio && row.horario_fim === order.horario_fim; })) return duplicateResponse_(duplicates, order);
+      const order = parsed.order;
       order.uuid = Utilities.getUuid();
       getSheet_().appendRow([order.uuid, order.data, order.horario_inicio, order.horario_fim, order.valor, order.pedido]);
-      delete order.confirmDuplicate;
       return ok_(order);
     } finally { lock.releaseLock(); }
   });
@@ -257,11 +243,7 @@ function updateOrder(input) {
       const orders = readOrders_(), order = parsed.order;
       const current = orders.find(function(row) { return row.uuid === order.uuid; });
       if (!current) return fail_('NOT_FOUND', 'Lançamento não encontrado.');
-      const duplicates = findDuplicates_(orders, order, order.uuid);
-      if (duplicates.length && !order.confirmDuplicate) return duplicateResponse_(duplicates, order);
-      if (duplicates.length && order.confirmDuplicate && !duplicates.some(function(row) { return row.data === order.data && row.horario_inicio === order.horario_inicio && row.horario_fim === order.horario_fim; })) return duplicateResponse_(duplicates, order);
       getSheet_().getRange(current._row, 2, 1, 5).setValues([[order.data, order.horario_inicio, order.horario_fim, order.valor, order.pedido]]);
-      delete order.confirmDuplicate;
       return ok_(order);
     } finally { lock.releaseLock(); }
   });

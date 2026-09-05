@@ -13,16 +13,15 @@ o mesmo dia da semana anterior.
 O produto deve ser simples para a operação diária, responsivo em celular e
 desktop, visualmente consistente com a identidade dark/glass do SAE e seguro
 para publicação como Web App. A fonte oficial dos dados será a planilha informada
-pelo usuário, com uma linha por pedido.
+pelo usuário, com uma linha por lançamento operacional.
 
 ## 1.1 Decisões homologadas
 
 - Aba oficial: `Leo_bd`.
 - Timezone: `America/Sao_Paulo`.
-- Pedidos: contagem distinta pela coluna `pedido`.
-- Número de pedido: único globalmente; repetição somente é admitida no mesmo dia e
-  período após confirmação explícita do usuário. Os valores das linhas confirmadas
-  são somados nos indicadores.
+- Pedidos: soma numérica da coluna `pedido`; cada linha é somente um lançamento.
+  Valores zero permanecem visíveis nas tabelas e representam uma faixa registrada,
+  mas não aumentam os indicadores.
 - Web App: acesso público, executado como proprietário.
 - Filtros: combinados por interseção.
 - Série histórica: últimos 12 meses corridos.
@@ -40,7 +39,7 @@ pelo usuário, com uma linha por pedido.
   visíveis.
 - A troca entre Dashboard e Operações recria os gráficos após o DOM do Vue estar
   disponível, sem exigir novo clique em “Aplicar filtros”.
-- A tabela recente não expõe o UUID visualmente e preserva lançamentos cujo pedido
+- A tabela recente não expõe o UUID visualmente e preserva lançamentos cuja quantidade de pedidos
   ou valor seja `0`.
 - O horário final recebe automaticamente uma hora adicional após a seleção do
   horário inicial e continua editável.
@@ -145,7 +144,7 @@ Google Apps Script V8
     └── acesso em lote ao Sheets
                 │
                 ▼
-Google Sheets — aba homologada (uma linha = um pedido)
+Google Sheets — aba homologada (uma linha = um lançamento)
 ```
 
 Não haverá React, JSX, bundler, Babel, banco externo ou API REST exposta sem uma
@@ -169,7 +168,7 @@ necessidade de integração formalmente homologada.
 | `horario_inicio` | horário | `HH:mm`, obrigatório |
 | `horario_fim` | horário | `HH:mm`, obrigatório e posterior ao início |
 | `valor` | número | Finito, normalizado, maior ou igual a zero; formato monetário só na apresentação |
-| `pedido` | string | Obrigatório, normalizado e com unicidade conforme decisão de negócio |
+| `pedido` | número inteiro | Quantidade de pedidos do lançamento, maior ou igual a zero |
 
 Recomendação para auditabilidade de produção: acrescentar `criado_em`,
 `atualizado_em` e `criado_por`. Isso é uma evolução de esquema e depende de
@@ -210,9 +209,10 @@ decidirá linha da planilha, fórmula de KPI, autorização ou UUID.
 ### 5.2 Faturamento e pedidos
 
 - **Faturamento:** soma de `valor` dos registros válidos no recorte.
-- **Pedidos:** por padrão, contagem de linhas válidas (uma linha = um pedido).
-- Caso o número do pedido possa se repetir, é necessária uma decisão entre
-  contagem de linhas e contagem distinta de `pedido`.
+- **Pedidos:** soma dos valores numéricos da coluna `pedido` nos lançamentos do
+  recorte; a quantidade de linhas nunca é usada como quantidade de pedidos.
+- Um lançamento com `pedido = 0` continua nas tabelas e agrupamentos para comprovar
+  que aquela faixa foi registrada, mas adiciona zero aos indicadores.
 - Meses/dias históricos sem movimento podem aparecer com zero quando necessários
   para preservar uma linha temporal compreensível.
 - No gráfico por horário, faixas sem registro serão omitidas conforme solicitado.
@@ -269,7 +269,7 @@ saldo(p)      = realizado(p) - referencia(p)
 - Ler/escrever ranges em lote e evitar chamadas célula a célula.
 - Nunca confiar em número de linha enviado pelo cliente; localizar por UUID no
   servidor.
-- Bloquear UUID duplicado e decidir a política de duplicidade do número do pedido.
+- Bloquear UUID duplicado e validar `pedido` como quantidade inteira não negativa.
 - Registrar erros técnicos em `console.error` no GAS e retornar ao usuário apenas
   mensagens úteis, sem stack trace ou detalhes internos.
 - Exibir skeletons, loader estilo Google, estado vazio, retry e bloquear duplo
