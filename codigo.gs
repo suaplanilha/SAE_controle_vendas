@@ -1,6 +1,6 @@
 /** SAE Controle de Vendas — backend Google Apps Script V8. */
 const CONFIG = Object.freeze({
-  SPREADSHEET_ID: '1b6EtE3NHfsO3BgcX6OwB8vj90QzgtYPLJt4rXgoZ8z0',
+  SPREADSHEET_ID: '1nhN1q2NEkwJ5YZVuUMQVAofMEgBGixKKDEQORwHuAuc',
   SHEET_NAME: 'Leo_bd',
   TIMEZONE: 'America/Sao_Paulo',
   HEADERS: ['UUID', 'data', 'horario_inicio', 'horario_fim', 'valor', 'pedido'],
