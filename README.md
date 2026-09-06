@@ -396,3 +396,17 @@ transformadas em strings ISO, evitando respostas `null` e o erro de frontend
 `Cannot read properties of null (reading 'ok')`. Após publicar correções de
 backend, é necessário criar uma nova versão e atualizar a implantação do Web App;
 recarregar somente a URL antiga não publica o código novo.
+
+### Riscos conhecidos da implantação pública
+
+O Web App executa como proprietário e aceita acesso anônimo. Sem identidade de
+usuário confiável, não é possível aplicar rate limit individual robusto: um
+terceiro pode repetir consultas e consumir cotas diárias ou tempo de execução do
+Apps Script. Até existir autenticação/PIN ou uma camada confiável de identidade,
+esse risco deve ser monitorado pelas métricas de execução do projeto. Limites
+globais agressivos não foram adicionados porque também bloqueariam usuários
+legítimos que compartilham a aplicação.
+
+O manifesto instalável básico está presente no HTML. Um service worker offline
+completo continua limitado pelo modo como o `HtmlService` hospeda o Web App; CRUD
+e indicadores permanecem dependentes da conexão com o GAS.

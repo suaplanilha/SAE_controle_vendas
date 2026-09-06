@@ -6,6 +6,8 @@ const CONFIG = Object.freeze({
   HEADERS: ['UUID', 'data', 'horario_inicio', 'horario_fim', 'valor', 'pedido'],
   PAGE_SIZE: 20
 });
+let _salesSheetCache = null;
+const _capitalSheetCache = {};
 
 function doGet() {
   return HtmlService.createHtmlOutputFromFile('index')
@@ -18,13 +20,15 @@ function getSpreadsheet_() {
 }
 
 function getSheet_() {
+  if (_salesSheetCache) return _salesSheetCache;
   const sheet = getSpreadsheet_().getSheetByName(CONFIG.SHEET_NAME);
   if (!sheet) throw new Error('A aba "' + CONFIG.SHEET_NAME + '" não foi encontrada.');
   const actual = sheet.getRange(1, 1, 1, CONFIG.HEADERS.length).getDisplayValues()[0];
   if (actual.join('|').toLowerCase() !== CONFIG.HEADERS.join('|').toLowerCase()) {
     throw new Error('Cabeçalho inválido em ' + CONFIG.SHEET_NAME + '. Esperado: ' + CONFIG.HEADERS.join(' | '));
   }
-  return sheet;
+  _salesSheetCache = sheet;
+  return _salesSheetCache;
 }
 
 function ok_(data, meta) { return { ok: true, data: data, meta: meta || {} }; }
@@ -327,11 +331,13 @@ function applyCapitalFormats_(ss) {
 }
 
 function capitalSheet_(name, headers) {
+  if (_capitalSheetCache[name]) return _capitalSheetCache[name];
   const sheet = getSpreadsheet_().getSheetByName(name);
   if (!sheet) throw new Error('Execute setupCapitalModule antes de usar Divisão do Capital.');
   const actual = sheet.getRange(1, 1, 1, headers.length).getDisplayValues()[0];
   if (actual.join('|') !== headers.join('|')) throw new Error('Cabeçalho incompatível na aba ' + name + '.');
-  return sheet;
+  _capitalSheetCache[name] = sheet;
+  return _capitalSheetCache[name];
 }
 
 function readCapitalVariables_(onlyActive) {
@@ -376,7 +382,7 @@ function saveCapitalVariable(input) {
         sheet.getRange(current._row, 2, 1, 7).setValues([[variable.nome, variable.slug, variable.percentual, variable.tipo, variable.ordem, variable.ativo, now]]);
       } else {
         variable.uuid = Utilities.getUuid(); variable.slug = slugify_(variable.nome) || variable.uuid;
-        variable.ordem = variable.ordem || all.length + 1;
+        variable.ordem = variable.ordem > 0 ? variable.ordem : all.length + 1;
         sheet.appendRow([variable.uuid, variable.nome, variable.slug, variable.percentual, variable.tipo, variable.ordem, variable.ativo, now]);
       }
       return ok_(variable, { expensePercent: readCapitalVariables_(true).filter(function(v) { return v.tipo === 'DESPESA'; }).reduce(function(t, v) { return t + v.percentual; }, 0) });
@@ -455,7 +461,13 @@ function saveCapitalTransfer_(input, updating) {
         variables = current.items.map(function(i) { return { uuid: i.variavel_uuid, nome: i.nome, tipo: i.tipo, percentual: i.percentual, ordem: i.ordem }; });
       } else variables = readCapitalVariables_(true);
       if (!variables.length) return fail_('CONFIG_REQUIRED', 'Cadastre as variáveis antes do repasse.');
-      const calc = calculateCapital_(transfer.repasse, variables, transfer.overrides), now = new Date();
+      let calc;
+      try {
+        calc = calculateCapital_(transfer.repasse, variables, transfer.overrides);
+      } catch (calcError) {
+        return fail_('CALC_ERROR', calcError.message || 'Não foi possível calcular a divisão do capital.');
+      }
+      const now = new Date();
       const version = Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify(calc.items.map(function(i) { return [i.variavel_uuid, i.percentual]; })))).slice(0, 16);
       if (updating) {
         transferSheet.getRange(current._row, 2, 1, 9).setValues([[transfer.data, calc.repasse_semanal, calc.total_despesas, calc.lucro_liquido, calc.reserva, calc.pro_labore, version, current.criado_em, now]]);
