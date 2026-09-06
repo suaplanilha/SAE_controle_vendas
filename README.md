@@ -27,8 +27,8 @@ pelo usuário, com uma linha por lançamento operacional.
 - Série histórica: últimos 12 meses corridos.
 - Comparador: data atual como padrão, com uma segunda opção selecionável.
 - Consolidado mensal: uma linha por faixa horária.
-- Spreadsheet ID: configurado no backend, com precedência para a Script Property
-  `SPREADSHEET_ID`.
+- Spreadsheet ID: configurado no backend como
+  `1nhN1q2NEkwJ5YZVuUMQVAofMEgBGixKKDEQORwHuAuc`.
 
 ## 1.2 Refinamentos visuais e operacionais
 
@@ -107,7 +107,7 @@ deverá ser reorganizada antes de ser considerada pronta para produção.
 | --- | --- | --- |
 | Frontend obrigatório | JavaScript imperativo; Vue 3 não está carregado | Migrar o single-file para Vue 3 via CDN, com estado reativo e componentes locais |
 | Dados | Dados de demonstração gerados no navegador e persistidos em `localStorage` | Remover mocks e usar exclusivamente `google.script.run` |
-| Fonte da planilha | Uso de `SpreadsheetApp.getActiveSpreadsheet()` | Abrir por ID, guardado em Script Properties, evitando dependência de planilha ativa |
+| Fonte da planilha | Uso de `SpreadsheetApp.getActiveSpreadsheet()` | Abrir pelo ID homologado no backend, evitando dependência de planilha ativa |
 | Nome da aba | Código usa `Leo_bd`; briefing cita `Leo_db` e também `Leo_bd` | Bloquear implementação até confirmar o nome oficial |
 | API | `doGet`/`doPost` expõem CRUD/consulta por ações externas | Servir apenas a UI em `doGet` e manter operações internas no canal `google.script.run`, salvo requisito explícito de integração externa |
 | Clickjacking | Interface usa `XFrameOptionsMode.ALLOWALL` | Remover `ALLOWALL` se incorporação em domínio externo não for requisito homologado |
@@ -152,7 +152,7 @@ necessidade de integração formalmente homologada.
 
 ### 4.2 Configuração
 
-- `SPREADSHEET_ID`: propriedade de script, nunca digitada ou confiada pelo
+- `SPREADSHEET_ID`: constante server-side com o ID homologado, nunca recebida do
   navegador.
 - `SHEET_NAME`: constante após homologação entre `Leo_db` e `Leo_bd`.
 - `APP_TIMEZONE`: timezone homologado e também configurado no projeto GAS e na
@@ -304,7 +304,7 @@ saldo(p)      = realizado(p) - referencia(p)
 
 ### Fase 1 — Fundação do backend
 
-1. Configurar planilha por Script Properties e validar schema sem destruir dados.
+1. Configurar planilha pelo ID homologado no backend e validar schema sem destruir dados.
 2. Criar normalizadores, validadores, envelopes de resposta e tratamento de erro.
 3. Implementar repositório Sheets com leitura/escrita em lote e bloqueios.
 4. Implementar CRUD por UUID e testes manuais controlados em cópia da planilha.
@@ -374,7 +374,16 @@ não conseguiu acessá-las durante esta execução por restrição do proxy.
 1. Instalar e autenticar o `clasp` em uma estação administrativa.
 2. Obter o **ID do projeto de script** no editor do Apps Script e criar `.clasp.json`;
    o ID de implantação Web App (`AKfy...`) não substitui o ID do projeto.
-3. Definir a Script Property `SPREADSHEET_ID` com o ID da planilha homologada.
+3. Conferir o `SPREADSHEET_ID` server-side antes de publicar.
 4. Executar `clasp push`, criar uma nova versão e atualizar a implantação para
    executar como proprietário com acesso para qualquer pessoa.
 5. Validar o CRUD em uma cópia da planilha antes de apontar para produção.
+
+## 13. Divisão do capital
+
+A feature homologada está implementada com configuração dinâmica, snapshots,
+repasses, mini KPIs e exclusão lógica. A especificação e as decisões consolidadas
+estão em
+[`docs/DIVISAO_CAPITAL_ESPECIFICACAO.md`](docs/DIVISAO_CAPITAL_ESPECIFICACAO.md).
+Antes do primeiro uso, execute `setupCapitalModule()` ou utilize “Preparar módulo”
+na página Configurações para garantir as três entidades e os registros iniciais.
