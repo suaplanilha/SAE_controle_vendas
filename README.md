@@ -410,3 +410,18 @@ legítimos que compartilham a aplicação.
 O manifesto instalável básico está presente no HTML. Um service worker offline
 completo continua limitado pelo modo como o `HtmlService` hospeda o Web App; CRUD
 e indicadores permanecem dependentes da conexão com o GAS.
+
+## 14. Financeiro e Custos
+
+A proposta de catálogo hierárquico, lançamentos de receitas/despesas, recorrência,
+contas a pagar, KPIs, entidades Sheets e decisões pendentes está documentada em
+[`docs/FINANCEIRO_CUSTOS_ESPECIFICACAO.md`](docs/FINANCEIRO_CUSTOS_ESPECIFICACAO.md).
+A feature foi homologada e implementada com recorrência mensal de 12 meses e
+KPIs de contas a pagar/pagas determinados pelo mês da data de vencimento. Execute
+`setupFinanceModule()` ou “Preparar financeiro” antes do primeiro uso.
+
+O setup cria `Financeiro_Categorias`, `Financeiro_Subcategorias`,
+`Financeiro_Itens`, `Financeiro_Lancamentos` e `Financeiro_Recorrencias`, inclui
+as categorias de despesas homologadas e instala a trigger diária responsável por
+manter uma janela idempotente de 12 meses. Configurações → Custos administra o
+catálogo; Financeiro concentra receitas, despesas e contas a pagar.
