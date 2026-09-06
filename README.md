@@ -425,3 +425,15 @@ O setup cria `Financeiro_Categorias`, `Financeiro_Subcategorias`,
 as categorias de despesas homologadas e instala a trigger diária responsável por
 manter uma janela idempotente de 12 meses. Configurações → Custos administra o
 catálogo; Financeiro concentra receitas, despesas e contas a pagar.
+
+## Arquitetura de informação operacional (2026-09-06)
+
+A navegação principal foi consolidada em cinco contextos de trabalho: **Vendas**, **Financeiro**, **Capital**, **Configurações** e **Ajuda**. Dashboard e Operações passam a compartilhar a página Vendas; o formulário textual de lançamento, os indicadores, gráficos e registros recentes seguem um fluxo vertical com largura máxima de 1040 px.
+
+- **Vendas:** lançamento rápido, filtros independentes, alternância Faturamento/Pedidos, registros recentes e comparador D-7 retrátil.
+- **Financeiro:** lançamento rápido de receita/despesa, contas por vencimento e lançamentos conectados às entidades `Financeiro_*`.
+- **Capital:** repasses e parâmetros percentuais no mesmo contexto, em abas internas.
+- **Configurações:** catálogo financeiro de categoria → subcategoria → item.
+- **Ajuda:** regras de negócio e explicações removidas das telas operacionais.
+
+O lançamento rápido de vendas é um parser determinístico local, sem API externa: interpreta valor, horário e quantidade em textos como `35,90 às 20h, 4 pedidos`; uma faixa selecionada por chip pode substituir o horário do texto. O formulário completo permanece disponível para edição e casos excepcionais.

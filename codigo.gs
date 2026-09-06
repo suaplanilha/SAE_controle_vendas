@@ -562,5 +562,38 @@ function materializeRecurrence_(uuid,months){const entries=readFinanceEntries_()
 function materializeRecurringExpenses(){const lock=LockService.getScriptLock();lock.waitLock(30000);try{const rec=readRows_(finSheet_(FIN.RECUR,FIN.RECUR_H),FIN.RECUR_H);rec.filter(r=>r[3]===true).forEach(r=>materializeRecurrence_(String(r[0]),12));}finally{lock.releaseLock();}}
 function setFinanceEntryPaid(input){return safeCall_(function(){const lock=LockService.getScriptLock();lock.waitLock(20000);try{const e=readFinanceEntries_().find(x=>x.uuid===String(input.uuid||''));if(!e)return fail_('NOT_FOUND','Lançamento não encontrado.');const paid=input.pago===true;finSheet_(FIN.ENTRIES,FIN.ENTRY_H).getRange(e._row,15,1,2).setValues([[paid,paid?new Date():'']]);return ok_({uuid:e.uuid,pago:paid});}finally{lock.releaseLock();}});}
 function deleteFinanceEntry(uuid){return safeCall_(function(){const lock=LockService.getScriptLock();lock.waitLock(20000);try{const e=readFinanceEntries_().find(x=>x.uuid===String(uuid||''));if(!e)return fail_('NOT_FOUND','Lançamento não encontrado.');finSheet_(FIN.ENTRIES,FIN.ENTRY_H).getRange(e._row,19,1,2).setValues([[true,new Date()]]);return ok_({uuid:e.uuid});}finally{lock.releaseLock();}});}
-function getFinanceBootstrap(filters){return safeCall_(function(){filters=filters||{};materializeRecurringExpenses();const cat=readFinanceCatalog_(),entries=readFinanceEntries_().sort((a,b)=>(a.data_vencimento||a.data_movimento).localeCompare(b.data_vencimento||b.data_movimento)),recurrenceStatus=new Map(readRows_(finSheet_(FIN.RECUR,FIN.RECUR_H),FIN.RECUR_H).map(r=>[String(r[0]),r[3]===true])),today=nowIso_(),month=/^\d{4}-\d{2}$/.test(filters.month)?filters.month:monthOf_(today),due=entries.filter(x=>x.fonte==='DESPESA'&&monthOf_(x.data_vencimento)===month),sum=r=>r.reduce((t,x)=>t+x.valor,0),unpaid=due.filter(x=>!x.pago),paid=due.filter(x=>x.pago),tomorrow=addDays_(today,1),d2=addDays_(today,2),d7=addDays_(today,7);entries.forEach(x=>x.recorrente_ativa=x.recorrencia_uuid?recurrenceStatus.get(x.recorrencia_uuid)===true:false);function clean(x){const y=Object.assign({},x);delete y._row;return y;}return ok_({catalog:{categories:cat.categories.map(clean),subcategories:cat.subcategories.map(clean),items:cat.items.map(clean)},entries:entries.map(clean),context:{today,month},kpis:{payable:sum(unpaid),paid:sum(paid),payableCount:unpaid.length,paidCount:paid.length},bills:{overdue:unpaid.filter(x=>x.data_vencimento<today).map(clean),today:unpaid.filter(x=>x.data_vencimento===today).map(clean),tomorrow:unpaid.filter(x=>x.data_vencimento===tomorrow).map(clean),next7:unpaid.filter(x=>x.data_vencimento>=d2&&x.data_vencimento<=d7).map(clean)}});});}
+function getFinanceBootstrap(filters) {
+  return safeCall_(function () {
+    filters = filters || {};
+    materializeRecurringExpenses();
+    const cat = readFinanceCatalog_();
+    const entries = readFinanceEntries_().sort((a, b) =>
+      (a.data_vencimento || a.data_movimento).localeCompare(b.data_vencimento || b.data_movimento));
+    const recurrenceStatus = new Map(readRows_(finSheet_(FIN.RECUR, FIN.RECUR_H), FIN.RECUR_H)
+      .map(row => [String(row[0]), row[3] === true]));
+    const today = nowIso_();
+    const month = /^\d{4}-\d{2}$/.test(filters.month) ? filters.month : monthOf_(today);
+    const monthEntries = entries.filter(entry => monthOf_(entry.data_vencimento || entry.data_movimento) === month);
+    const expenses = monthEntries.filter(entry => entry.fonte === 'DESPESA');
+    const revenues = monthEntries.filter(entry => entry.fonte === 'RECEITA');
+    const sum = rows => rows.reduce((total, entry) => total + entry.valor, 0);
+    const unpaid = expenses.filter(entry => !entry.pago);
+    const paid = expenses.filter(entry => entry.pago);
+    const tomorrow = addDays_(today, 1), d2 = addDays_(today, 2), d7 = addDays_(today, 7);
+    const categoryMap = {};
+    expenses.forEach(entry => categoryMap[entry.categoria] = (categoryMap[entry.categoria] || 0) + entry.valor);
+    const categoryTotals = Object.keys(categoryMap)
+      .map(name => ({ name: name, value: categoryMap[name] }))
+      .sort((a, b) => b.value - a.value);
+    entries.forEach(entry => entry.recorrente_ativa = entry.recorrencia_uuid
+      ? recurrenceStatus.get(entry.recorrencia_uuid) === true : false);
+    function clean(entry) { const result = Object.assign({}, entry); delete result._row; return result; }
+    return ok_({
+      catalog: { categories: cat.categories.map(clean), subcategories: cat.subcategories.map(clean), items: cat.items.map(clean) },
+      entries: entries.map(clean), context: { today: today, month: month }, categoryTotals: categoryTotals,
+      kpis: { revenue: sum(revenues), expenses: sum(expenses), balance: sum(revenues) - sum(expenses), payable: sum(unpaid), paid: sum(paid), payableCount: unpaid.length, paidCount: paid.length },
+      bills: { overdue: unpaid.filter(x => x.data_vencimento < today).map(clean), today: unpaid.filter(x => x.data_vencimento === today).map(clean), tomorrow: unpaid.filter(x => x.data_vencimento === tomorrow).map(clean), next7: unpaid.filter(x => x.data_vencimento >= d2 && x.data_vencimento <= d7).map(clean) }
+    });
+  });
+}
 function setFinanceRecurrenceStatus(input){return safeCall_(function(){const lock=LockService.getScriptLock();lock.waitLock(20000);try{const sheet=finSheet_(FIN.RECUR,FIN.RECUR_H),rows=readRows_(sheet,FIN.RECUR_H),idx=rows.findIndex(r=>String(r[0])===String(input.uuid||''));if(idx<0)return fail_('NOT_FOUND','Recorrência não encontrada.');const active=input.ativa===true;sheet.getRange(idx+2,4,1,3).setValues([[active,rows[idx][4],active?'':new Date()]]);return ok_({uuid:String(input.uuid),ativa:active});}finally{lock.releaseLock();}});}
