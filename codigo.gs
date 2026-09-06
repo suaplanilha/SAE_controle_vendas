@@ -103,6 +103,10 @@ function addDays_(iso, days) {
 }
 function nowIso_() { return Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd'); }
 function nowTime_() { return Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'HH:mm'); }
+function dateTimeIso_(value) {
+  if (!(value instanceof Date) || isNaN(value.getTime())) return value ? String(value) : '';
+  return Utilities.formatDate(value, CONFIG.TIMEZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
+}
 function hasSlot_(row, slot) { return !slot || slot === 'ALL' || slotOf_(row) === slot; }
 
 function group_(rows, keyFn) {
@@ -496,8 +500,22 @@ function getCapitalBootstrap(filters) {
     const monthRows = transfers.filter(function(t) { return monthOf_(t.data) === month; }), yearRows = transfers.filter(function(t) { return yearOf_(t.data) === year; });
     const prevMonthRows = transfers.filter(function(t) { return monthOf_(t.data) === previousMonth; }), prevYearRows = transfers.filter(function(t) { return yearOf_(t.data) === previousYear; });
     const variables = readCapitalVariables_(false), expensePercent = variables.filter(function(v) { return v.ativo && v.tipo === 'DESPESA'; }).reduce(function(t, v) { return t + v.percentual; }, 0);
-    transfers.forEach(function(t) { delete t._row; t.items.forEach(function(i) { delete i._row; }); });
-    return ok_({ variables: variables.map(function(v) { delete v._row; return v; }), transfers: transfers, context: { today: today, month: month }, expensePercent: expensePercent,
+    const publicVariables = variables.map(function(v) {
+      return { uuid: v.uuid, nome: v.nome, slug: v.slug, percentual: v.percentual,
+        tipo: v.tipo, ordem: v.ordem, ativo: v.ativo, atualizado_em: dateTimeIso_(v.atualizado_em) };
+    });
+    const publicTransfers = transfers.map(function(t) {
+      return { uuid: t.uuid, data: t.data, repasse_semanal: t.repasse_semanal,
+        total_despesas: t.total_despesas, lucro_liquido: t.lucro_liquido,
+        reserva: t.reserva, pro_labore: t.pro_labore, config_versao: t.config_versao,
+        criado_em: dateTimeIso_(t.criado_em), atualizado_em: dateTimeIso_(t.atualizado_em),
+        items: t.items.map(function(i) {
+          return { uuid: i.uuid, repasse_uuid: i.repasse_uuid, variavel_uuid: i.variavel_uuid,
+            nome: i.nome, tipo: i.tipo, percentual: i.percentual, base: i.base,
+            valor: i.valor, ordem: i.ordem };
+        }) };
+    });
+    return ok_({ variables: publicVariables, transfers: publicTransfers, context: { today: today, month: month }, expensePercent: expensePercent,
       kpis: { proLaboreMonth: total(monthRows, 'pro_labore'), proLaboreYear: total(yearRows, 'pro_labore'), expensesMonth: total(monthRows, 'total_despesas'), expensesYear: total(yearRows, 'total_despesas'),
         proLaboreMonthVariation: capitalVariation_(total(monthRows, 'pro_labore'), total(prevMonthRows, 'pro_labore')), expensesMonthVariation: capitalVariation_(total(monthRows, 'total_despesas'), total(prevMonthRows, 'total_despesas')),
         proLaboreYearVariation: capitalVariation_(total(yearRows, 'pro_labore'), total(prevYearRows, 'pro_labore')), expensesYearVariation: capitalVariation_(total(yearRows, 'total_despesas'), total(prevYearRows, 'total_despesas')) } });

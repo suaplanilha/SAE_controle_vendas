@@ -387,3 +387,12 @@ estão em
 [`docs/DIVISAO_CAPITAL_ESPECIFICACAO.md`](docs/DIVISAO_CAPITAL_ESPECIFICACAO.md).
 Antes do primeiro uso, execute `setupCapitalModule()` ou utilize “Preparar módulo”
 na página Configurações para garantir as três entidades e os registros iniciais.
+
+### Comunicação GAS do módulo de capital
+
+As respostas de `getCapitalBootstrap()` são convertidas para objetos totalmente
+serializáveis antes de atravessar `google.script.run`. Datas vindas do Sheets são
+transformadas em strings ISO, evitando respostas `null` e o erro de frontend
+`Cannot read properties of null (reading 'ok')`. Após publicar correções de
+backend, é necessário criar uma nova versão e atualizar a implantação do Web App;
+recarregar somente a URL antiga não publica o código novo.
