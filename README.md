@@ -431,9 +431,23 @@ catálogo; Financeiro concentra receitas, despesas e contas a pagar.
 A navegação principal foi consolidada em cinco contextos de trabalho: **Vendas**, **Financeiro**, **Capital**, **Configurações** e **Ajuda**. Dashboard e Operações passam a compartilhar a página Vendas; o formulário textual de lançamento, os indicadores, gráficos e registros recentes seguem um fluxo vertical com largura máxima de 1040 px.
 
 - **Vendas:** lançamento rápido, filtros independentes, alternância Faturamento/Pedidos, registros recentes e comparador D-7 retrátil.
-- **Financeiro:** lançamento rápido de receita/despesa, contas por vencimento e lançamentos conectados às entidades `Financeiro_*`.
+- **Financeiro:** drawer de receitas/despesas, contas por vencimento e lançamentos conectados às entidades `Financeiro_*`.
 - **Capital:** repasses e parâmetros percentuais no mesmo contexto, em abas internas.
 - **Configurações:** catálogo financeiro de categoria → subcategoria → item.
 - **Ajuda:** regras de negócio e explicações removidas das telas operacionais.
 
 O lançamento rápido de vendas é um parser determinístico local, sem API externa: interpreta valor, horário e quantidade em textos como `35,90 às 20h, 4 pedidos`; uma faixa selecionada por chip pode substituir o horário do texto. O formulário completo permanece disponível para edição e casos excepcionais.
+
+### Ajustes operacionais de Financeiro e Capital (2026-09-07)
+
+- Lançamentos de despesas exigem apenas data, vencimento, tipo, categoria,
+  subcategoria e valor; item e descrição deixaram de integrar esse fluxo.
+- Os atalhos `+` do drawer financeiro reutilizam o mesmo CRUD do catálogo para
+  cadastrar categoria ou subcategoria sem abandonar o lançamento em andamento.
+- A validação server-side rejeita nomes equivalentes no mesmo nível e escopo,
+  desconsiderando diferenças de caixa, acentuação e espaços repetidos.
+- Dados de Capital e Financeiro permanecem em memória por até dois minutos na
+  sessão ativa. Escritas continuam atualizando as telas imediatamente, enquanto
+  simples alternâncias de página deixam de repetir leituras da planilha.
+- As funções de setup continuam disponíveis diretamente no backend, mas foram
+  removidas das telas operacionais.
